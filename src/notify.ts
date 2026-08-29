@@ -19,69 +19,43 @@ export async function sendTelegramMediaGroup(payload: MultiNotificationPayload):
     return false;
   }
 
-  console.log(`[Notify] Đang gửi thông báo Telegram kèm ${payload.photos.length} ảnh...`);
+  console.log(`[Notify] Đang gửi thông báo Telegram cho ${payload.photos.length} account...`);
 
   try {
-    if (payload.photos.length > 1) {
-      // Gửi Album nhiều ảnh (sendMediaGroup)
-      const formData = new FormData();
-      formData.append('chat_id', chatId);
+    // Gửi lần lượt từng account: 1 tin nhắn + 1 ảnh duy nhất kèm báo cáo
+    if (payload.photos.length > 0) {
+      for (let i = 0; i < payload.photos.length; i++) {
+        const item = payload.photos[i];
+        const caption = item.caption || payload.summaryText;
 
-      const media = payload.photos.map((item, index) => {
-        const attachName = `photo_${index}`;
+        const formData = new FormData();
+        formData.append('chat_id', chatId);
+        formData.append('caption', caption);
+        formData.append('parse_mode', 'HTML');
         formData.append(
-          attachName,
+          'photo',
           new Blob([new Uint8Array(item.buffer)], { type: 'image/png' }),
-          `${attachName}.png`
+          'screenshot.png'
         );
 
-        return {
-          type: 'photo',
-          media: `attach://${attachName}`,
-          caption: index === 0 ? payload.summaryText : item.caption || '',
-          parse_mode: 'HTML',
-        };
-      });
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          body: formData,
+        });
 
-      formData.append('media', JSON.stringify(media));
+        if (!res.ok) {
+          console.error(`[Notify] Gửi ảnh account ${i + 1} lỗi:`, await res.text());
+        }
 
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (res.ok) {
-        console.log('[Notify] Đã gửi MediaGroup Telegram thành công!');
-        return true;
+        if (i < payload.photos.length - 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
       }
-
-      console.error('[Notify] sendMediaGroup failed:', await res.text());
-    } else if (payload.photos.length === 1) {
-      // Gửi 1 ảnh đơn (sendPhoto)
-      const formData = new FormData();
-      formData.append('chat_id', chatId);
-      formData.append('caption', payload.summaryText);
-      formData.append('parse_mode', 'HTML');
-      formData.append(
-        'photo',
-        new Blob([new Uint8Array(payload.photos[0].buffer)], { type: 'image/png' }),
-        'screenshot.png'
-      );
-
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (res.ok) {
-        console.log('[Notify] Đã gửi sendPhoto Telegram thành công!');
-        return true;
-      }
-
-      console.error('[Notify] sendPhoto failed:', await res.text());
+      console.log('[Notify] Đã gửi thông báo Telegram thành công!');
+      return true;
     }
 
-    // Fallback: Gửi tin nhắn text thuần nếu gửi ảnh lỗi hoặc không có ảnh
+    // Fallback: Gửi tin nhắn text thuần nếu không có ảnh
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -92,12 +66,7 @@ export async function sendTelegramMediaGroup(payload: MultiNotificationPayload):
       }),
     });
 
-    if (!res.ok) {
-      console.error('[Notify] sendMessage failed:', await res.text());
-      return false;
-    }
-
-    return true;
+    return res.ok;
   } catch (err) {
     console.error('[Notify] Error sending Telegram message:', err);
     return false;
