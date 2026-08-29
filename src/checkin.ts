@@ -1,4 +1,4 @@
-import { chromium, Page } from 'playwright';
+import { chromium } from 'playwright';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sendTelegramMediaGroup, MediaPhoto } from './notify.js';
@@ -56,27 +56,6 @@ function extractUserFromCookie(cookieVal: string): { username: string; id: numbe
     }
   } catch {}
   return { username: 'github_user', id: 1 };
-}
-
-/**
- * Tự động giải Captcha trượt của Alibaba Cloud WAF nếu xuất hiện
- */
-async function solveSliderCaptchaIfPresent(page: Page): Promise<boolean> {
-  try {
-    const sliderHandle = page.locator('#nc_1_n1z, .btn_slide, .nc_iconfont.btn_slide, span[id*="n1z"]').first();
-    if ((await sliderHandle.count()) > 0 && (await sliderHandle.isVisible())) {
-      const box = await sliderHandle.boundingBox();
-      if (box) {
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(box.x + box.width / 2 + 400, box.y + box.height / 2, { steps: 30 });
-        await page.mouse.up();
-        await page.waitForTimeout(2000);
-        return true;
-      }
-    }
-  } catch {}
-  return false;
 }
 
 export function loadAccounts(): AccountItem[] {
@@ -143,12 +122,11 @@ async function checkinSingleAccount(
     locale: 'en-US',
   });
 
-  // Bypass phát hiện automation
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
-  // Inject cookies có sanitize type boolean
+  // Inject cookies cho cả domain chính và phụ
   await context.addCookies(
     account.session.cookies.flatMap((c) => [
       {
@@ -187,15 +165,26 @@ async function checkinSingleAccount(
     );
   }, { id: userId, username });
 
-  // Network Route Interception: Ngăn chặn WAF phá hỏng các request API nội bộ của SPA
-  await page.route('**/api/**', async (route, req) => {
+  // Triệt để ngăn chặn màn hình Access Verification của Alibaba WAF trên mọi URL
+  await page.route('https://agentrouter.org/**', async (route, req) => {
     const url = req.url();
+    const isDoc = req.resourceType() === 'document';
     try {
       const res = await route.fetch().catch(() => null);
       if (!res) return route.abort();
-      const text = await res.text();
 
-      if (text.includes('aliyun_waf') || text.includes('Access Verification') || !text.trim().startsWith('{')) {
+      const text = await res.text();
+      if (text.includes('aliyun_waf') || text.includes('Access Verification') || text.includes('AliyunCaptcha')) {
+        console.log(`[Bypass WAF]: ${url}`);
+
+        if (isDoc) {
+          return route.fulfill({
+            status: 200,
+            contentType: 'text/html',
+            body: `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><link rel="icon" type="image/x-icon" href="/logo.png" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Agent Router</title><script type="module" crossorigin src="/assets/index-BGk1WZnY.js"></script><link rel="stylesheet" crossorigin href="/assets/index-B9Q7D9se.css"></head><body class="bg-semi-color-bg-0"><div id="root"></div></body></html>`,
+          });
+        }
+
         if (url.includes('/api/user/self')) {
           return route.fulfill({
             status: 200,
@@ -214,6 +203,7 @@ async function checkinSingleAccount(
             }),
           });
         }
+
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -237,9 +227,8 @@ async function checkinSingleAccount(
     });
 
     await page.waitForTimeout(2000);
-    await solveSliderCaptchaIfPresent(page);
 
-    // 2. Tắt toàn bộ Modal dialog / thông báo che màn hình
+    // 2. Tắt toàn bộ Modal dialog / Popup thông báo che màn hình
     await page.evaluate(() => {
       document.querySelectorAll('.semi-modal button, .semi-modal-close').forEach((b) => (b as HTMLElement).click());
       setTimeout(() => {
@@ -253,10 +242,9 @@ async function checkinSingleAccount(
     const personalLink = page.locator('a[href*="/console/personal"], .semi-navigation-item:has-text("Personal Settings")').first();
     await personalLink.click().catch(() => {});
 
-    // 4. Chờ trang Personal Settings render xong
+    // 4. Chờ trang Personal Settings render xong danh sách model và thông tin
     await page.waitForSelector('text=Available models', { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(3000);
-    await solveSliderCaptchaIfPresent(page);
 
     const currentUrl = page.url();
     if (currentUrl.includes('/login')) {
