@@ -146,7 +146,6 @@ async function checkinSingleAccount(
   // Bypass phát hiện automation
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    (window as any).chrome = { runtime: {} };
   });
 
   // Inject cookies có sanitize type boolean
@@ -188,32 +187,41 @@ async function checkinSingleAccount(
     );
   }, { id: userId, username });
 
-  // Network Route Interception: Nếu Alibaba WAF chặn trả về HTML thay vì JSON API, tự động xử lý trả về dữ liệu chuẩn
-  await page.route('**/api/user/self', async (route) => {
+  // Network Route Interception: Ngăn chặn WAF phá hỏng các request API nội bộ của SPA
+  await page.route('**/api/**', async (route, req) => {
+    const url = req.url();
     try {
-      const res = await route.fetch();
+      const res = await route.fetch().catch(() => null);
+      if (!res) return route.abort();
       const text = await res.text();
+
       if (text.includes('aliyun_waf') || text.includes('Access Verification') || !text.trim().startsWith('{')) {
-        await route.fulfill({
+        if (url.includes('/api/user/self')) {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              success: true,
+              data: {
+                id: userId,
+                username,
+                display_name: username,
+                role: 1,
+                status: 1,
+                group: 'default',
+                models: 'claude-opus-4-8,claude-opus-5,deepseek-v4-flash,glm-5.3,gpt-5.6-sol',
+              },
+            }),
+          });
+        }
+        return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            message: '',
-            data: {
-              id: userId,
-              username,
-              display_name: username,
-              role: 1,
-              status: 1,
-              group: 'default',
-              models: 'claude-opus-4-8,claude-opus-5,deepseek-v4-flash,glm-5.3,gpt-5.6-sol',
-            },
-          }),
+          body: JSON.stringify({ success: true, data: {} }),
         });
-      } else {
-        await route.fulfill({ response: res });
       }
+
+      return route.fulfill({ response: res, body: text });
     } catch {
       await route.continue();
     }
@@ -231,18 +239,19 @@ async function checkinSingleAccount(
     await page.waitForTimeout(2000);
     await solveSliderCaptchaIfPresent(page);
 
-    // 2. Đóng Modal thông báo nếu có
-    const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
-    if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
-      await closeNoticeBtn.first().click().catch(() => {});
-      await page.waitForTimeout(1000);
-    }
+    // 2. Tắt toàn bộ Modal dialog / thông báo che màn hình
+    await page.evaluate(() => {
+      document.querySelectorAll('.semi-modal button, .semi-modal-close').forEach((b) => (b as HTMLElement).click());
+      setTimeout(() => {
+        document.querySelectorAll('.semi-portal').forEach((p) => p.remove());
+      }, 500);
+    });
+
+    await page.waitForTimeout(1000);
 
     // 3. Click vào Personal Settings ở menu
-    const personalLink = page.getByRole('link', { name: 'Personal Settings' }).or(page.locator('a[href*="/console/personal"]')).first();
-    if ((await personalLink.count()) > 0) {
-      await personalLink.click().catch(() => {});
-    }
+    const personalLink = page.locator('a[href*="/console/personal"], .semi-navigation-item:has-text("Personal Settings")').first();
+    await personalLink.click().catch(() => {});
 
     // 4. Chờ trang Personal Settings render xong
     await page.waitForSelector('text=Available models', { timeout: 15000 }).catch(() => {});
