@@ -1,0 +1,6 @@
+node_modules/
+storageState*.json
+accounts.json
+*.png
+.env
+.DS_Store
