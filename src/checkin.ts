@@ -126,7 +126,7 @@ async function checkinSingleAccount(
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
-  // Inject cookies cho cả domain chính và phụ
+  // Inject cookies
   await context.addCookies(
     account.session.cookies.flatMap((c) => [
       {
@@ -226,7 +226,7 @@ async function checkinSingleAccount(
       timeout: 60000,
     });
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     // 2. Tắt toàn bộ Modal dialog / Popup thông báo che màn hình
     await page.evaluate(() => {
