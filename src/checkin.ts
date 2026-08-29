@@ -45,18 +45,15 @@ export interface CheckinResult {
  */
 function extractUserFromCookie(cookieVal: string): { username: string; id: number } {
   try {
-    const step1 = Buffer.from(cookieVal.split('|')[0], 'base64').toString('latin1');
-    const pipeIndex = step1.indexOf('|');
-    if (pipeIndex !== -1) {
-      const b64Data = step1.slice(pipeIndex + 1);
-      const step2 = Buffer.from(b64Data, 'base64').toString('latin1');
-      const match = step2.match(/github_(\d+)/);
-      if (match) {
-        return {
-          username: match[0],
-          id: parseInt(match[1], 10),
-        };
-      }
+    const p0 = Buffer.from(cookieVal.split('|')[0], 'base64').toString('utf-8');
+    const p0Sub = p0.slice(p0.indexOf('|') + 1);
+    const decoded = Buffer.from(p0Sub, 'base64').toString('latin1');
+    const match = decoded.match(/github_(\d+)/);
+    if (match) {
+      return {
+        username: match[0],
+        id: parseInt(match[1], 10),
+      };
     }
   } catch {}
   return { username: 'github_user', id: 1 };
