@@ -122,9 +122,13 @@ async function checkinSingleAccount(
 
   await context.addCookies(
     account.session.cookies.map((c) => ({
-      ...c,
+      name: c.name,
+      value: c.value,
       domain: c.domain || 'agentrouter.org',
       path: c.path || '/',
+      httpOnly: typeof c.httpOnly === 'boolean' ? c.httpOnly : String(c.httpOnly) === 'true',
+      secure: typeof c.secure === 'boolean' ? c.secure : String(c.secure) === 'true',
+      sameSite: c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None' ? c.sameSite : 'Lax',
     }))
   );
 
