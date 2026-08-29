@@ -1,6 +1,19 @@
-export function renderPersonalSettingsHtml(user: { id: number; username: string; balance?: string }): string {
-  const avatarText = user.username.replace('github_', 'G').slice(0, 2).toUpperCase() || 'GI';
-  const balanceVal = user.balance || '$259.81';
+export interface RenderUserData {
+  id: number;
+  username: string;
+  displayName?: string;
+  balance?: string;
+  consumption?: string;
+  requests?: number;
+  group?: string;
+}
+
+export function renderPersonalSettingsHtml(user: RenderUserData): string {
+  const avatarText = (user.username.replace('github_', 'G').slice(0, 2) || 'GI').toUpperCase();
+  const balanceVal = user.balance || '$250.00';
+  const consumptionVal = user.consumption || '$0.00';
+  const requestsVal = user.requests !== undefined ? user.requests : 0;
+  const groupVal = user.group || 'default';
 
   return `<!doctype html>
 <html lang="en">
@@ -438,15 +451,15 @@ export function renderPersonalSettingsHtml(user: { id: number; username: string;
           <div class="stats-bar">
             <div class="stat-block">
               <span class="stat-label">Consumption</span>
-              <span class="stat-val">$0.19</span>
+              <span class="stat-val">${consumptionVal}</span>
             </div>
             <div class="stat-block">
               <span class="stat-label">Number of Requests</span>
-              <span class="stat-val">14</span>
+              <span class="stat-val">${requestsVal}</span>
             </div>
             <div class="stat-block">
               <span class="stat-label">Your default group</span>
-              <span class="stat-val">default</span>
+              <span class="stat-val">${groupVal}</span>
             </div>
           </div>
         </div>
