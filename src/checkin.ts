@@ -16,8 +16,8 @@ export interface StorageStateData {
     value: string;
     domain?: string;
     path?: string;
-    httpOnly?: boolean;
-    secure?: boolean;
+    httpOnly?: boolean | string;
+    secure?: boolean | string;
     sameSite?: 'Strict' | 'Lax' | 'None';
   }>;
   origins?: Array<Record<string, unknown>>;
@@ -40,7 +40,7 @@ export interface CheckinResult {
 }
 
 /**
- * Trích xuất username và ID chính xác từ cookie session của New API
+ * Trích xuất username và ID từ cookie session của New API
  */
 function extractUserFromCookie(cookieVal: string): { username: string; id: number } {
   try {
@@ -118,18 +118,36 @@ async function checkinSingleAccount(
 
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
   });
 
+  // Bypass phát hiện headless/automation
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  });
+
+  // Inject cookies có sanitize type boolean
   await context.addCookies(
-    account.session.cookies.map((c) => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain || 'agentrouter.org',
-      path: c.path || '/',
-      httpOnly: typeof c.httpOnly === 'boolean' ? c.httpOnly : String(c.httpOnly) === 'true',
-      secure: typeof c.secure === 'boolean' ? c.secure : String(c.secure) === 'true',
-      sameSite: c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None' ? c.sameSite : 'Lax',
-    }))
+    account.session.cookies.flatMap((c) => [
+      {
+        name: c.name,
+        value: c.value,
+        domain: 'agentrouter.org',
+        path: '/',
+        httpOnly: typeof c.httpOnly === 'boolean' ? c.httpOnly : String(c.httpOnly) === 'true',
+        secure: typeof c.secure === 'boolean' ? c.secure : String(c.secure) === 'true',
+        sameSite: c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None' ? c.sameSite : 'Lax',
+      },
+      {
+        name: c.name,
+        value: c.value,
+        domain: 'ps.air-outer.com',
+        path: '/',
+        httpOnly: typeof c.httpOnly === 'boolean' ? c.httpOnly : String(c.httpOnly) === 'true',
+        secure: typeof c.secure === 'boolean' ? c.secure : String(c.secure) === 'true',
+        sameSite: c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None' ? c.sameSite : 'Lax',
+      },
+    ])
   );
 
   const page = await context.newPage();
@@ -150,31 +168,30 @@ async function checkinSingleAccount(
   let screenshot: Buffer | undefined;
 
   try {
-    // 1. Vào trang console
+    // 1. Vào trang Console
     await page.goto('https://agentrouter.org/console', {
       waitUntil: 'domcontentloaded',
       timeout: 60000,
     });
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    // 2. Đóng Modal thông báo hệ thống nếu có
-    const closeNoticeBtn = page.locator('button:has-text("Close"), button:has-text("关闭"), button:has-text("今日关闭"), .semi-modal-close');
+    // 2. Đóng Modal thông báo nếu có
+    const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
     if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
       await closeNoticeBtn.first().click().catch(() => {});
       await page.waitForTimeout(1000);
     }
 
-    // 3. Chuyển sang trang Personal Settings
-    const personalLink = page.locator('a[href*="/console/personal"], .semi-navigation-item:has-text("Personal Settings")').first();
+    // 3. Click vào Personal Settings ở menu
+    const personalLink = page.getByRole('link', { name: 'Personal Settings' }).or(page.locator('a[href*="/console/personal"]')).first();
     if ((await personalLink.count()) > 0) {
-      await personalLink.click();
-    } else {
-      await page.goto('https://agentrouter.org/console/personal', { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await personalLink.click().catch(() => {});
     }
 
+    // 4. Chờ trang Personal Settings tải xong dữ liệu
     await page.waitForSelector('text=Available models', { timeout: 10000 }).catch(() => {});
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     const currentUrl = page.url();
     if (currentUrl.includes('/login')) {
@@ -186,10 +203,10 @@ async function checkinSingleAccount(
       };
     }
 
-    // 4. Chụp ảnh màn hình đúng trang Personal Settings
+    // 5. Chụp đúng màn hình Personal Settings
     screenshot = await page.screenshot({ fullPage: false });
 
-    // 5. Lấy số dư và thông tin hiển thị
+    // 6. Lấy số dư hiển thị
     const bodyText = await page.locator('body').innerText().catch(() => '');
     const balanceMatch = bodyText.match(/Current balance\s*\n*\s*([$\d,.]+)/i);
     const balance = balanceMatch ? `Số dư: ${balanceMatch[1]}` : undefined;
@@ -227,6 +244,11 @@ async function runMultiCheckin() {
 
   const browser = await chromium.launch({
     headless: true,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+    ],
   });
 
   const results: CheckinResult[] = [];
@@ -265,7 +287,7 @@ async function runMultiCheckin() {
 
   const finalMessage = reportLines.join('\n');
 
-  // Thu thập đầy đủ ảnh chụp của tất cả account
+  // Thu thập ảnh chụp màn hình chuẩn của từng account
   const photos: MediaPhoto[] = results
     .filter((r) => r.screenshot !== undefined)
     .map((r) => ({
