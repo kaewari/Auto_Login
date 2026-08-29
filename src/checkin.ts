@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium, Page } from 'playwright';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sendTelegramMediaGroup, MediaPhoto } from './notify.js';
@@ -56,6 +56,32 @@ function extractUserFromCookie(cookieVal: string): { username: string; id: numbe
     }
   } catch {}
   return { username: 'github_user', id: 1 };
+}
+
+/**
+ * Tự động phát hiện và kéo thanh trượt vượt captcha nếu gặp màn hình Access Verification (Alibaba WAF)
+ */
+async function solveSliderCaptchaIfPresent(page: Page): Promise<boolean> {
+  try {
+    const sliderHandle = page.locator('#nc_1_n1z, .btn_slide, .nc_iconfont.btn_slide, span[id*="n1z"]').first();
+    if ((await sliderHandle.count()) > 0 && (await sliderHandle.isVisible())) {
+      console.log('[Checkin] Phát hiện Captcha trượt (Access Verification)! Đang giải...');
+      const box = await sliderHandle.boundingBox();
+      if (box) {
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        // Kéo thanh trượt sang phải 400px
+        await page.mouse.move(box.x + box.width / 2 + 380, box.y + box.height / 2, { steps: 25 });
+        await page.mouse.up();
+        await page.waitForTimeout(3000);
+        console.log('[Checkin] Đã kéo thanh trượt xác thực.');
+        return true;
+      }
+    }
+  } catch (err) {
+    console.log('[Checkin] Lỗi khi xử lý slider captcha:', err);
+  }
+  return false;
 }
 
 export function loadAccounts(): AccountItem[] {
@@ -118,15 +144,19 @@ async function checkinSingleAccount(
 
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    locale: 'en-US',
   });
 
-  // Bypass phát hiện headless/automation
+  // Bypass phát hiện automation/bot
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    (window as any).chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
   });
 
-  // Inject cookies có sanitize type boolean
+  // Inject cookies có sanitize type boolean cho cả domain chính và phụ
   await context.addCookies(
     account.session.cookies.flatMap((c) => [
       {
@@ -176,6 +206,9 @@ async function checkinSingleAccount(
 
     await page.waitForTimeout(3000);
 
+    // Kiểm tra & giải slider captcha nếu bị chặn
+    await solveSliderCaptchaIfPresent(page);
+
     // 2. Đóng Modal thông báo nếu có
     const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
     if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
@@ -190,8 +223,11 @@ async function checkinSingleAccount(
     }
 
     // 4. Chờ trang Personal Settings tải xong dữ liệu
-    await page.waitForSelector('text=Available models', { timeout: 10000 }).catch(() => {});
+    await page.waitForSelector('text=Available models', { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(3000);
+
+    // Kiểm tra lại lần nữa nếu vẫn bị dính captcha
+    await solveSliderCaptchaIfPresent(page);
 
     const currentUrl = page.url();
     if (currentUrl.includes('/login')) {
@@ -248,6 +284,8 @@ async function runMultiCheckin() {
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--disable-infobars',
+      '--window-size=1440,900',
     ],
   });
 
