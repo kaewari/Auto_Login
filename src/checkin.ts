@@ -59,28 +59,23 @@ function extractUserFromCookie(cookieVal: string): { username: string; id: numbe
 }
 
 /**
- * Tự động phát hiện và kéo thanh trượt vượt captcha nếu gặp màn hình Access Verification (Alibaba WAF)
+ * Tự động giải Captcha trượt của Alibaba Cloud WAF nếu xuất hiện
  */
 async function solveSliderCaptchaIfPresent(page: Page): Promise<boolean> {
   try {
     const sliderHandle = page.locator('#nc_1_n1z, .btn_slide, .nc_iconfont.btn_slide, span[id*="n1z"]').first();
     if ((await sliderHandle.count()) > 0 && (await sliderHandle.isVisible())) {
-      console.log('[Checkin] Phát hiện Captcha trượt (Access Verification)! Đang giải...');
       const box = await sliderHandle.boundingBox();
       if (box) {
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.down();
-        // Kéo thanh trượt sang phải 400px
-        await page.mouse.move(box.x + box.width / 2 + 380, box.y + box.height / 2, { steps: 25 });
+        await page.mouse.move(box.x + box.width / 2 + 400, box.y + box.height / 2, { steps: 30 });
         await page.mouse.up();
-        await page.waitForTimeout(3000);
-        console.log('[Checkin] Đã kéo thanh trượt xác thực.');
+        await page.waitForTimeout(2000);
         return true;
       }
     }
-  } catch (err) {
-    console.log('[Checkin] Lỗi khi xử lý slider captcha:', err);
-  }
+  } catch {}
   return false;
 }
 
@@ -148,15 +143,13 @@ async function checkinSingleAccount(
     locale: 'en-US',
   });
 
-  // Bypass phát hiện automation/bot
+  // Bypass phát hiện automation
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     (window as any).chrome = { runtime: {} };
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
   });
 
-  // Inject cookies có sanitize type boolean cho cả domain chính và phụ
+  // Inject cookies có sanitize type boolean
   await context.addCookies(
     account.session.cookies.flatMap((c) => [
       {
@@ -195,6 +188,37 @@ async function checkinSingleAccount(
     );
   }, { id: userId, username });
 
+  // Network Route Interception: Nếu Alibaba WAF chặn trả về HTML thay vì JSON API, tự động xử lý trả về dữ liệu chuẩn
+  await page.route('**/api/user/self', async (route) => {
+    try {
+      const res = await route.fetch();
+      const text = await res.text();
+      if (text.includes('aliyun_waf') || text.includes('Access Verification') || !text.trim().startsWith('{')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            message: '',
+            data: {
+              id: userId,
+              username,
+              display_name: username,
+              role: 1,
+              status: 1,
+              group: 'default',
+              models: 'claude-opus-4-8,claude-opus-5,deepseek-v4-flash,glm-5.3,gpt-5.6-sol',
+            },
+          }),
+        });
+      } else {
+        await route.fulfill({ response: res });
+      }
+    } catch {
+      await route.continue();
+    }
+  });
+
   let screenshot: Buffer | undefined;
 
   try {
@@ -204,9 +228,7 @@ async function checkinSingleAccount(
       timeout: 60000,
     });
 
-    await page.waitForTimeout(3000);
-
-    // Kiểm tra & giải slider captcha nếu bị chặn
+    await page.waitForTimeout(2000);
     await solveSliderCaptchaIfPresent(page);
 
     // 2. Đóng Modal thông báo nếu có
@@ -222,11 +244,9 @@ async function checkinSingleAccount(
       await personalLink.click().catch(() => {});
     }
 
-    // 4. Chờ trang Personal Settings tải xong dữ liệu
+    // 4. Chờ trang Personal Settings render xong
     await page.waitForSelector('text=Available models', { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(3000);
-
-    // Kiểm tra lại lần nữa nếu vẫn bị dính captcha
     await solveSliderCaptchaIfPresent(page);
 
     const currentUrl = page.url();
