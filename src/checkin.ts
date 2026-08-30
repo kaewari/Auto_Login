@@ -34,6 +34,7 @@ export interface AccountItem {
 export interface CheckinResult {
   name: string;
   username: string;
+  displayName?: string;
   success: boolean;
   message: string;
   balance?: string;
@@ -155,7 +156,25 @@ export async function checkinSingleAccount(
   }, { id: userId, username, role: decodedProfile.role, status: decodedProfile.status });
 
   let realBalance: string | undefined;
+  let realDisplayName: string | undefined;
   let screenshot: Buffer | undefined;
+
+  // Lắng nghe API response chính thức của AgentRouter khi trang web tải
+  page.on('response', async (res) => {
+    if (res.url().includes('/api/user/self') && res.status() === 200) {
+      try {
+        const json = await res.json();
+        if (json.success && json.data) {
+          if (json.data.quota !== undefined) {
+            realBalance = `$${(json.data.quota / 500000).toFixed(2)}`;
+          }
+          if (json.data.display_name) {
+            realDisplayName = json.data.display_name;
+          }
+        }
+      } catch {}
+    }
+  });
 
   try {
     // 1. Mở trực tiếp trang Personal Settings thật
@@ -176,32 +195,14 @@ export async function checkinSingleAccount(
       };
     }
 
-    // 2. Gọi API xác thực người dùng từ chính context trình duyệt để tránh bị WAF chặn
-    try {
-      const apiData = await page.evaluate(async (uid) => {
-        try {
-          const res = await fetch('/api/user/self', {
-            headers: { 'New-Api-User': String(uid) },
-          });
-          return await res.json();
-        } catch {
-          return null;
-        }
-      }, userId);
-
-      if (apiData && apiData.success && apiData.data && apiData.data.quota !== undefined) {
-        realBalance = `$${(apiData.data.quota / 500000).toFixed(2)}`;
-      }
-    } catch {}
-
-    // 3. Đóng thông báo popup nếu có
+    // 2. Đóng thông báo popup nếu có
     const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
     if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
       await closeNoticeBtn.first().click().catch(() => {});
       await page.waitForTimeout(1000);
     }
 
-    // 4. Lấy số dư từ DOM nếu API chưa trả về
+    // 3. Fallback lấy số dư từ DOM nếu cần
     if (!realBalance) {
       const bodyText = await page.locator('body').innerText().catch(() => '');
       const balanceMatch = bodyText.match(/(?:Current balance|当前余额|余额)\s*[\r\n\s]*([$\d,.]+)/i);
@@ -210,12 +211,13 @@ export async function checkinSingleAccount(
       }
     }
 
-    // 5. Chụp ảnh màn hình thật từ website
+    // 4. Chụp ảnh màn hình thật từ website
     screenshot = await page.screenshot({ fullPage: false });
 
     return {
       name: account.name,
       username,
+      displayName: realDisplayName,
       success: true,
       message: 'Đăng nhập & Điểm danh thành công (Active daily session)',
       balance: realBalance ? `Số dư: ${realBalance}` : undefined,
@@ -230,6 +232,7 @@ export async function checkinSingleAccount(
     return {
       name: account.name,
       username,
+      displayName: realDisplayName,
       success: false,
       message: `Lỗi kết nối trang cá nhân: ${err.message}`,
       balance: realBalance ? `Số dư: ${realBalance}` : undefined,
@@ -287,7 +290,8 @@ export async function runMultiCheckin() {
   results.forEach((r) => {
     const icon = r.success ? '✅' : '❌';
     const balanceStr = r.balance ? ` | 💰 <code>${r.balance}</code>` : '';
-    reportLines.push(`👤 <b>${r.name}</b> (<code>${r.username}</code>): ${icon} ${r.message}${balanceStr}`);
+    const displayStr = r.displayName ? ` (${r.displayName})` : '';
+    reportLines.push(`👤 <b>${r.name}</b> (<code>${r.username}</code>${displayStr}): ${icon} ${r.message}${balanceStr}`);
   });
 
   const finalMessage = reportLines.join('\n');
@@ -296,7 +300,7 @@ export async function runMultiCheckin() {
   const photos: MediaPhoto[] = results
     .filter((r) => r.screenshot !== undefined)
     .map((r) => ({
-      caption: `👤 <b>${r.name}</b> (<code>${r.username}</code>)\nTrạng thái: ${r.success ? '✅ Thành công' : '❌ Thất bại'}${r.balance ? `\n💰 ${r.balance}` : ''}`,
+      caption: `👤 <b>${r.name}</b> (<code>${r.username}</code>${r.displayName ? ` - ${r.displayName}` : ''})\nTrạng thái: ${r.success ? '✅ Thành công' : '❌ Thất bại'}${r.balance ? `\n💰 ${r.balance}` : ''}`,
       buffer: r.screenshot!,
     }));
 
