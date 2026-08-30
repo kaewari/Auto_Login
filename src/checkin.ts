@@ -208,7 +208,7 @@ export async function checkinSingleAccount(
     try {
       const apiData = await page.evaluate(async (uid) => {
         try {
-          const res = await fetch('https://ps.air-outer.com/api/user/self', {
+          const res = await fetch('/api/user/self', {
             headers: {
               'New-Api-User': String(uid),
               'Accept': 'application/json, text/plain, */*',
@@ -269,6 +269,16 @@ export async function checkinSingleAccount(
     // Chụp ảnh màn hình giao diện thật chuẩn nét
     screenshot = await page.screenshot({ fullPage: false });
 
+    // Lưu ảnh vào thư mục screenshots/ để upload làm artifact
+    try {
+      const screenshotsDir = path.resolve(process.cwd(), 'screenshots');
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+      }
+      const safeAccName = account.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      fs.writeFileSync(path.join(screenshotsDir, `${safeAccName}_personal.png`), screenshot);
+    } catch {}
+
     return {
       name: account.name,
       username,
@@ -292,6 +302,13 @@ export async function checkinSingleAccount(
       });
       await page.setContent(cleanHtml, { waitUntil: 'load' });
       screenshot = await page.screenshot({ fullPage: false });
+      
+      const screenshotsDir = path.resolve(process.cwd(), 'screenshots');
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+      }
+      const safeAccName = account.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      fs.writeFileSync(path.join(screenshotsDir, `${safeAccName}_personal.png`), screenshot);
     } catch {}
 
     return {
