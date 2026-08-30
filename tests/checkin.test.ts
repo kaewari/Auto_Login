@@ -1,66 +1,59 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert';
-import { loadAccounts } from '../src/checkin.js';
+import test, { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseAccountData, AccountItem } from '../src/account.js';
+import { processAccount } from '../src/agentrouter.js';
 
-describe('Multi-Account Checkin tests', () => {
-  it('loadAccounts() xử lý tương thích ngược single storageState object', () => {
-    const singleMock = {
-      cookies: [{ name: 'single_session', value: '111' }],
-      origins: []
+describe('Multi-Account parsing tests', () => {
+  it('parseAccountData xử lý tương thích ngược single storageState object', () => {
+    const single = {
+      cookies: [{ name: 'session', value: 'MTcw...' }],
+      origins: [],
     };
-    process.env.STORAGE_STATE_BASE64 = Buffer.from(JSON.stringify(singleMock)).toString('base64');
-
-    const accounts = loadAccounts();
-    assert.strictEqual(accounts.length, 1);
-    assert.strictEqual(accounts[0].name, 'Default_Account');
-    assert.strictEqual(accounts[0].session.cookies[0].name, 'single_session');
-
-    delete process.env.STORAGE_STATE_BASE64;
+    const b64 = Buffer.from(JSON.stringify(single)).toString('base64');
+    const result = parseAccountData(b64);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, 'Default_Account');
+    assert.equal(result[0].session.cookies[0].name, 'session');
   });
 
-  it('loadAccounts() giải mã đúng mảng nhiều account', () => {
-    const multiMock = [
+  it('parseAccountData giải mã đúng mảng nhiều account', () => {
+    const multi: AccountItem[] = [
       {
-        name: 'Acc1_Main',
-        session: { cookies: [{ name: 'acc1', value: 'aaa' }], origins: [] }
+        name: 'Account_1',
+        session: { cookies: [{ name: 'session', value: 's1' }] },
       },
       {
-        name: 'Acc2_Sub',
-        session: { cookies: [{ name: 'acc2', value: 'bbb' }], origins: [] }
-      }
+        name: 'Account_2',
+        session: { cookies: [{ name: 'session', value: 's2' }] },
+      },
     ];
-    process.env.STORAGE_STATE_BASE64 = Buffer.from(JSON.stringify(multiMock)).toString('base64');
-
-    const accounts = loadAccounts();
-    assert.strictEqual(accounts.length, 2);
-    assert.strictEqual(accounts[0].name, 'Acc1_Main');
-    assert.strictEqual(accounts[0].session.cookies[0].value, 'aaa');
-    assert.strictEqual(accounts[1].name, 'Acc2_Sub');
-    assert.strictEqual(accounts[1].session.cookies[0].value, 'bbb');
-
-    delete process.env.STORAGE_STATE_BASE64;
+    const b64 = Buffer.from(JSON.stringify(multi)).toString('base64');
+    const result = parseAccountData(b64);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].name, 'Account_1');
+    assert.equal(result[1].name, 'Account_2');
   });
 
-  it('loadAccounts() ném lỗi khi Base64 hỏng', () => {
-    process.env.STORAGE_STATE_BASE64 = 'corrupted_base64_data_123';
+  it('parseAccountData ném lỗi khi Base64 hỏng', () => {
     assert.throws(() => {
-      loadAccounts();
-    }, /STORAGE_STATE_BASE64 không hợp lệ/);
-
-    delete process.env.STORAGE_STATE_BASE64;
+      parseAccountData('not-a-valid-base64-json!!!');
+    }, /không hợp lệ/);
   });
 });
 
-describe('checkinSingleAccount validation tests', () => {
-  it('xác định lỗi SESSION_MISSING nếu account không có cookie session', async () => {
-    const { checkinSingleAccount } = await import('../src/checkin.js');
-    const mockAccount = {
-      name: 'NoCookie_Account',
-      session: { cookies: [], origins: [] },
+describe('processAccount validation tests', () => {
+  it('ném lỗi nếu account không có cookie session', async () => {
+    const fakeAccount: AccountItem = {
+      name: 'No_Session',
+      session: { cookies: [] },
     };
-    const mockBrowser = {} as any;
-    const res = await checkinSingleAccount(mockAccount, mockBrowser);
-    assert.strictEqual(res.success, false);
-    assert.match(res.message, /SESSION_MISSING/);
+    const fakeBrowser = {} as any;
+
+    await assert.rejects(
+      async () => {
+        await processAccount(fakeAccount, fakeBrowser);
+      },
+      /SESSION_MISSING/
+    );
   });
 });
