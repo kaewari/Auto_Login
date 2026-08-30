@@ -106,34 +106,6 @@ export async function checkinSingleAccount(
 
   console.log(`\n[Checkin] >>> Đang xử lý [${account.name}] (Username: ${username}, ID: ${userId})...`);
 
-  // 1. Kiểm tra xác thực qua API thật của AgentRouter
-  let realBalance: string | undefined;
-  let realDisplayName: string = username;
-  try {
-    const apiRes = await fetch('https://agentrouter.org/api/user/self', {
-      headers: {
-        Cookie: `session=${sessionCookie.value}`,
-        'New-Api-User': String(userId),
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        Accept: 'application/json, text/plain, */*',
-      },
-    });
-
-    if (apiRes.ok) {
-      const apiJson = await apiRes.json();
-      if (apiJson.success && apiJson.data) {
-        if (apiJson.data.quota !== undefined) {
-          realBalance = `$${(apiJson.data.quota / 500000).toFixed(2)}`;
-        }
-        if (apiJson.data.display_name) {
-          realDisplayName = apiJson.data.display_name;
-        }
-      }
-    }
-  } catch (apiErr) {
-    console.warn(`[Checkin - ${account.name}] Lỗi khi fetch /api/user/self:`, (apiErr as Error).message);
-  }
-
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -182,10 +154,11 @@ export async function checkinSingleAccount(
     );
   }, { id: userId, username, role: decodedProfile.role, status: decodedProfile.status });
 
+  let realBalance: string | undefined;
   let screenshot: Buffer | undefined;
 
   try {
-    // 2. Mở trực tiếp trang Personal Settings thật
+    // 1. Mở trực tiếp trang Personal Settings thật
     await page.goto('https://agentrouter.org/console/personal', {
       waitUntil: 'networkidle',
       timeout: 35000,
@@ -203,6 +176,24 @@ export async function checkinSingleAccount(
       };
     }
 
+    // 2. Gọi API xác thực người dùng từ chính context trình duyệt để tránh bị WAF chặn
+    try {
+      const apiData = await page.evaluate(async (uid) => {
+        try {
+          const res = await fetch('/api/user/self', {
+            headers: { 'New-Api-User': String(uid) },
+          });
+          return await res.json();
+        } catch {
+          return null;
+        }
+      }, userId);
+
+      if (apiData && apiData.success && apiData.data && apiData.data.quota !== undefined) {
+        realBalance = `$${(apiData.data.quota / 500000).toFixed(2)}`;
+      }
+    } catch {}
+
     // 3. Đóng thông báo popup nếu có
     const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
     if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
@@ -210,10 +201,10 @@ export async function checkinSingleAccount(
       await page.waitForTimeout(1000);
     }
 
-    // 4. Lấy số dư từ DOM thật của trang web nếu API chưa cung cấp
+    // 4. Lấy số dư từ DOM nếu API chưa trả về
     if (!realBalance) {
       const bodyText = await page.locator('body').innerText().catch(() => '');
-      const balanceMatch = bodyText.match(/Current balance\s*\n*\s*([$\d,.]+)/i);
+      const balanceMatch = bodyText.match(/(?:Current balance|当前余额|余额)\s*[\r\n\s]*([$\d,.]+)/i);
       if (balanceMatch) {
         realBalance = balanceMatch[1];
       }
