@@ -1,34 +1,46 @@
-# AgentRouter Multi-Account Auto Check-in Daily
+# AgentRouter Multi-Account 12:00 PM Daily Check-in & Screenshot
 
-Tool tự động điểm danh / nhận token hàng ngày trên [AgentRouter Console](https://agentrouter.org/console/token) cho **1 hoặc nhiều tài khoản** bằng Playwright và GitHub Actions.
+Hệ thống tự động hóa điểm danh / nhận thưởng $25 hàng ngày trên [AgentRouter Console](https://agentrouter.org/console/personal) cho **1 hoặc nhiều tài khoản** bằng Playwright, chụp ảnh màn hình trang cá nhân và gửi báo cáo Telegram Bot.
 
 ---
 
-## 🚀 Hướng dẫn sử dụng nhiều Account
+## ⚡ Tính năng nổi bật
+- ⏰ **Tự động kích hoạt 12:00 PM hàng ngày** (Cron GitHub Actions `0 5 * * *` = 12:00 ICT trưa).
+- 🔑 **Hỗ trợ Multi-Account không giới hạn**: Duyệt tuần tự an toàn từng tài khoản.
+- 💰 **Nhận thưởng $25 & Cập nhật số dư Real-Time**: Truy vấn hạn mức trực tiếp từ session.
+- 📸 **Chụp ảnh màn hình tại `https://agentrouter.org/console/personal`**: Tự động vượt WAF/AliyunCaptcha.
+- 📲 **Báo cáo chi tiết qua Telegram**: Gửi từng ảnh chụp màn hình kèm thông tin ID, Username, Số dư của từng tài khoản riêng biệt + tin nhắn tổng hợp.
+- 📦 **Lưu trữ Artifacts**: Ảnh chụp màn hình được upload tự động lên GitHub Actions trong 7 ngày.
 
-### 1. Đăng nhập từng tài khoản trên máy local
+---
+
+## 🚀 Hướng dẫn sử dụng
+
+### 1. Đăng nhập và xuất Session cho từng tài khoản
 Chạy lệnh kèm tên định danh cho từng account:
 
 ```bash
 # Đăng nhập account 1
-npm run login -- Acc1_Chinh
+npm run login -- Account_1
 
 # Đăng nhập account 2
-npm run login -- Acc2_Phu
+npm run login -- Account_2
 ```
 
-- Sau mỗi lần đăng nhập thành công, script sẽ tự động lưu và cập nhật vào file `accounts.json` cục bộ.
-- Terminal sẽ in ra **chuỗi Base64 tổng hợp** đại diện cho toàn bộ danh sách account.
+- Sau khi đăng nhập thành công qua trình duyệt, session sẽ tự động được lưu vào `accounts.json`.
+- Terminal sẽ xuất chuỗi **Base64 tổng hợp**.
 
-### 2. Thiết lập GitHub Secrets
-Đưa code lên GitHub Repository (Private), vào **Settings > Secrets and variables > Actions** thêm các secret:
-- `STORAGE_STATE_BASE64`: Dán chuỗi Base64 tổng hợp (chứa toàn bộ danh sách account).
+### 2. Cài đặt GitHub Repository Secrets
+Tạo repository GitHub (Private), vào **Settings > Secrets and variables > Actions** thêm các biến:
+- `STORAGE_STATE_BASE64`: Dán chuỗi Base64 tổng hợp (chứa toàn bộ accounts).
 - `TELEGRAM_BOT_TOKEN`: Token bot Telegram từ `@BotFather`.
 - `TELEGRAM_CHAT_ID`: Chat ID nhận tin nhắn từ `@userinfobot`.
 
-### 3. Cơ chế hoạt động & Lịch chạy
-- GitHub Actions tự động kích hoạt vào **11:00 UTC (20:00 JST - 8h tối Nhật Bản / 18:00 ICT - 6h tối Việt Nam)** hàng ngày.
-- Mở trực tiếp trang cá nhân thật `https://ps.air-outer.com/console/personal` bằng session đã xác thực, tự động lấy số dư thực tế theo thời gian thực (real-time).
-- Script duyệt tuần tự qua từng account (nghỉ 3s giữa các account để tránh rate limit).
-- Gửi tin nhắn báo cáo trạng thái & số dư thật kèm ảnh chụp màn hình riêng biệt cho từng account qua **Telegram bot**.
-- Tự động lưu toàn bộ ảnh chụp màn hình vào mục **Artifacts** của GitHub Actions để có thể tải và xem lại bất cứ lúc nào.
+### 3. Kiểm thử & Chạy thủ công
+```bash
+# Chạy toàn bộ test suite
+npm test
+
+# Chạy trực tiếp tiến trình check-in local
+npm run checkin
+```
