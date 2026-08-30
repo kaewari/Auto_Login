@@ -23,11 +23,11 @@ npm run login -- Acc2_Phu
 ### 2. Thiết lập GitHub Secrets
 Đưa code lên GitHub Repository (Private), vào **Settings > Secrets and variables > Actions** thêm các secret:
 - `STORAGE_STATE_BASE64`: Dán chuỗi Base64 tổng hợp (chứa toàn bộ danh sách account).
-- `TELEGRAM_BOT_TOKEN`: (Tuỳ chọn) Token bot Telegram từ `@BotFather`.
-- `TELEGRAM_CHAT_ID`: (Tuỳ chọn) Chat ID nhận tin nhắn từ `@userinfobot`.
+- `TELEGRAM_BOT_TOKEN`: Token bot Telegram từ `@BotFather`.
+- `TELEGRAM_CHAT_ID`: Chat ID nhận tin nhắn từ `@userinfobot`.
 
-### 3. Cơ chế hoạt động
-- GitHub Actions tự động kích hoạt vào **05:00 UTC (12:00 ICT - 12h trưa Việt Nam / 14:00 JST)** hàng ngày.
-- Mở trang cá nhân `https://agentrouter.org/console/personal` chụp ảnh toàn màn hình để gửi báo cáo.
+### 3. Cơ chế hoạt động & Lịch chạy
+- GitHub Actions tự động kích hoạt vào **03:00 UTC (12:00 JST - 12h trưa Nhật Bản / 10:00 ICT - 10h sáng Việt Nam)** hàng ngày.
+- Mở trực tiếp trang cá nhân thật `https://agentrouter.org/console/personal` bằng session đã xác thực và chụp ảnh màn hình chính xác của từng tài khoản.
 - Script duyệt tuần tự qua từng account (nghỉ 3s giữa các account để tránh rate limit).
-- Gộp báo cáo trạng thái & số dư của tất cả các account vào **1 tin nhắn Telegram duy nhất kèm ảnh chụp màn hình**.
+- Gửi tin nhắn báo cáo trạng thái & số dư thật kèm ảnh chụp màn hình riêng biệt cho từng account qua **Telegram bot**.

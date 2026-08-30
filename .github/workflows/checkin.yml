@@ -2,8 +2,8 @@ name: AgentRouter Daily Check-in
 
 on:
   schedule:
-    # 05:00 UTC = 12:00 ICT (12h trưa Việt Nam) / 14:00 JST mỗi ngày
-    - cron: '0 5 * * *'
+    # 03:00 UTC = 12:00 JST (12h trưa Nhật Bản) / 10:00 ICT (10h sáng Việt Nam) mỗi ngày
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies

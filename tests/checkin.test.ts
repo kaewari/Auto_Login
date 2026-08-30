@@ -50,3 +50,17 @@ describe('Multi-Account Checkin tests', () => {
     delete process.env.STORAGE_STATE_BASE64;
   });
 });
+
+describe('checkinSingleAccount validation tests', () => {
+  it('xác định lỗi SESSION_MISSING nếu account không có cookie session', async () => {
+    const { checkinSingleAccount } = await import('../src/checkin.js');
+    const mockAccount = {
+      name: 'NoCookie_Account',
+      session: { cookies: [], origins: [] },
+    };
+    const mockBrowser = {} as any;
+    const res = await checkinSingleAccount(mockAccount, mockBrowser);
+    assert.strictEqual(res.success, false);
+    assert.match(res.message, /SESSION_MISSING/);
+  });
+});

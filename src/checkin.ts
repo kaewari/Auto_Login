@@ -1,8 +1,8 @@
-import { chromium } from 'playwright';
+import { chromium, Browser } from 'playwright';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sendTelegramMediaGroup, MediaPhoto } from './notify.js';
-import { renderPersonalSettingsHtml } from './renderPersonalPage.js';
+import { extractUserFromCookie, DecodedUserProfile } from './sessionParser.js';
 
 // Tự động nạp file .env local nếu có (native Node.js)
 if (typeof (process as any).loadEnvFile === 'function') {
@@ -38,25 +38,6 @@ export interface CheckinResult {
   message: string;
   balance?: string;
   screenshot?: Buffer;
-}
-
-/**
- * Trích xuất username và ID chính xác từ cookie session của New API (Go gorilla/securecookie)
- */
-function extractUserFromCookie(cookieVal: string): { username: string; id: number } {
-  try {
-    const p0 = Buffer.from(cookieVal.split('|')[0], 'base64').toString('utf-8');
-    const p0Sub = p0.slice(p0.indexOf('|') + 1);
-    const decoded = Buffer.from(p0Sub, 'base64').toString('latin1');
-    const match = decoded.match(/github_(\d+)/);
-    if (match) {
-      return {
-        username: match[0],
-        id: parseInt(match[1], 10),
-      };
-    }
-  } catch {}
-  return { username: 'github_user', id: 1 };
 }
 
 export function loadAccounts(): AccountItem[] {
@@ -105,22 +86,62 @@ export function loadAccounts(): AccountItem[] {
   throw new Error('Không tìm thấy session! Cần set STORAGE_STATE_BASE64 hoặc chạy `npm run login`.');
 }
 
-async function checkinSingleAccount(
+export async function checkinSingleAccount(
   account: AccountItem,
-  browser: ReturnType<typeof chromium.launch> extends Promise<infer T> ? T : never
+  browser: Browser
 ): Promise<CheckinResult> {
   const sessionCookie = account.session.cookies.find((c) => c.name === 'session');
-  const cookieVal = sessionCookie?.value || '';
-  const parsedUser = extractUserFromCookie(cookieVal);
-  const username = account.username || parsedUser.username;
-  const userId = account.id || parsedUser.id;
+  if (!sessionCookie || !sessionCookie.value) {
+    return {
+      name: account.name,
+      username: account.username || 'unknown',
+      success: false,
+      message: 'SESSION_MISSING: Không tìm thấy cookie session trong cấu hình tài khoản.',
+    };
+  }
+
+  const decodedProfile: DecodedUserProfile = extractUserFromCookie(sessionCookie.value);
+  const username = account.username || decodedProfile.username;
+  const userId = account.id || decodedProfile.id;
 
   console.log(`\n[Checkin] >>> Đang xử lý [${account.name}] (Username: ${username}, ID: ${userId})...`);
+
+  // 1. Kiểm tra xác thực qua API thật của AgentRouter
+  let realBalance: string | undefined;
+  let realDisplayName: string = username;
+  try {
+    const apiRes = await fetch('https://agentrouter.org/api/user/self', {
+      headers: {
+        Cookie: `session=${sessionCookie.value}`,
+        'New-Api-User': String(userId),
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+      },
+    });
+
+    if (apiRes.ok) {
+      const apiJson = await apiRes.json();
+      if (apiJson.success && apiJson.data) {
+        if (apiJson.data.quota !== undefined) {
+          realBalance = `$${(apiJson.data.quota / 500000).toFixed(2)}`;
+        }
+        if (apiJson.data.display_name) {
+          realDisplayName = apiJson.data.display_name;
+        }
+      }
+    }
+  } catch (apiErr) {
+    console.warn(`[Checkin - ${account.name}] Lỗi khi fetch /api/user/self:`, (apiErr as Error).message);
+  }
 
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     locale: 'en-US',
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
   await context.addCookies(
@@ -148,64 +169,57 @@ async function checkinSingleAccount(
 
   const page = await context.newPage();
 
+  // Inject thông tin user thật vào localStorage để React SPA nhận diện chính xác
+  await page.addInitScript((u) => {
+    window.localStorage.setItem(
+      'user',
+      JSON.stringify({
+        id: u.id,
+        username: u.username,
+        role: u.role || 1,
+        status: u.status || 1,
+      })
+    );
+  }, { id: userId, username, role: decodedProfile.role, status: decodedProfile.status });
+
   let screenshot: Buffer | undefined;
-  let balance = '$250.00';
-  let consumption = '$0.00';
-  let requests = 0;
-  let displayName = username;
 
   try {
-    // 1. Kích hoạt session và lấy dữ liệu tài khoản chính xác qua Backend API
-    const apiRes = await fetch('https://agentrouter.org/api/user/self', {
-      headers: {
-        Cookie: `session=${cookieVal}`,
-        'New-Api-User': String(userId),
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    }).catch(() => null);
-
-    if (apiRes && apiRes.ok) {
-      try {
-        const json = await apiRes.json();
-        if (json.success && json.data) {
-          if (json.data.quota !== undefined) {
-            balance = `$${(json.data.quota / 500000).toFixed(2)}`;
-          }
-          if (json.data.used_quota !== undefined) {
-            consumption = `$${(json.data.used_quota / 500000).toFixed(2)}`;
-          }
-          if (json.data.request_count !== undefined) {
-            requests = json.data.request_count;
-          }
-          if (json.data.display_name) {
-            displayName = json.data.display_name;
-          }
-        }
-      } catch {}
-    }
-
-    // 2. Ping trang Console để kích hoạt daily check-in
-    await page.goto('https://agentrouter.org/console', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    }).catch(() => {});
+    // 2. Mở trực tiếp trang Personal Settings thật
+    await page.goto('https://agentrouter.org/console/personal', {
+      waitUntil: 'networkidle',
+      timeout: 35000,
+    });
 
     await page.waitForTimeout(2000);
 
-    // 3. Render trang Personal Settings chuẩn cho từng account với data thật
-    const personalHtml = renderPersonalSettingsHtml({
-      id: userId,
-      username,
-      displayName,
-      balance,
-      consumption,
-      requests,
-    });
+    const currentUrl = page.url();
+    if (currentUrl.includes('/login')) {
+      return {
+        name: account.name,
+        username,
+        success: false,
+        message: 'SESSION_EXPIRED: Cookie session đã hết hạn hoặc không hợp lệ trên AgentRouter.',
+      };
+    }
 
-    await page.setContent(personalHtml, { waitUntil: 'load' });
-    await page.waitForTimeout(1000);
+    // 3. Đóng thông báo popup nếu có
+    const closeNoticeBtn = page.getByRole('button', { name: /Close|关闭|今日关闭/i });
+    if ((await closeNoticeBtn.count()) > 0 && (await closeNoticeBtn.first().isVisible())) {
+      await closeNoticeBtn.first().click().catch(() => {});
+      await page.waitForTimeout(1000);
+    }
 
-    // 4. Chụp ảnh màn hình chính xác giao diện Personal Settings
+    // 4. Lấy số dư từ DOM thật của trang web nếu API chưa cung cấp
+    if (!realBalance) {
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      const balanceMatch = bodyText.match(/Current balance\s*\n*\s*([$\d,.]+)/i);
+      if (balanceMatch) {
+        realBalance = balanceMatch[1];
+      }
+    }
+
+    // 5. Chụp ảnh màn hình thật từ website
     screenshot = await page.screenshot({ fullPage: false });
 
     return {
@@ -213,29 +227,21 @@ async function checkinSingleAccount(
       username,
       success: true,
       message: 'Đăng nhập & Điểm danh thành công (Active daily session)',
-      balance: `Số dư: ${balance}`,
+      balance: realBalance ? `Số dư: ${realBalance}` : undefined,
       screenshot,
     };
   } catch (error) {
     const err = error as Error;
     try {
-      const personalHtml = renderPersonalSettingsHtml({
-        id: userId,
-        username,
-        balance,
-        consumption,
-        requests,
-      });
-      await page.setContent(personalHtml, { waitUntil: 'load' });
       screenshot = await page.screenshot({ fullPage: false });
     } catch {}
 
     return {
       name: account.name,
       username,
-      success: true,
-      message: `Đăng nhập thành công (${err.message})`,
-      balance: `Số dư: ${balance}`,
+      success: false,
+      message: `Lỗi kết nối trang cá nhân: ${err.message}`,
+      balance: realBalance ? `Số dư: ${realBalance}` : undefined,
       screenshot,
     };
   } finally {
@@ -243,7 +249,7 @@ async function checkinSingleAccount(
   }
 }
 
-async function runMultiCheckin() {
+export async function runMultiCheckin() {
   console.log('=== AGENTROUTER MULTI-ACCOUNT DAILY CHECK-IN ===');
   const accounts = loadAccounts();
   console.log(`[Checkin] Đã tải ${accounts.length} account.`);
