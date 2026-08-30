@@ -2,8 +2,8 @@ name: AgentRouter Daily Check-in
 
 on:
   schedule:
-    # 03:00 UTC = 12:00 JST (12h trưa Nhật Bản) / 10:00 ICT (10h sáng Việt Nam) mỗi ngày
-    - cron: '0 3 * * *'
+    # 11:00 UTC = 20:00 JST (8h tối Nhật Bản) / 18:00 ICT (6h tối Việt Nam) mỗi ngày
+    - cron: '0 11 * * *'
   workflow_dispatch:
 
 jobs:

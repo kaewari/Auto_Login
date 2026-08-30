@@ -27,7 +27,8 @@ npm run login -- Acc2_Phu
 - `TELEGRAM_CHAT_ID`: Chat ID nhận tin nhắn từ `@userinfobot`.
 
 ### 3. Cơ chế hoạt động & Lịch chạy
-- GitHub Actions tự động kích hoạt vào **03:00 UTC (12:00 JST - 12h trưa Nhật Bản / 10:00 ICT - 10h sáng Việt Nam)** hàng ngày.
-- Mở trực tiếp trang cá nhân thật `https://agentrouter.org/console/personal` bằng session đã xác thực và chụp ảnh màn hình chính xác của từng tài khoản.
+- GitHub Actions tự động kích hoạt vào **11:00 UTC (20:00 JST - 8h tối Nhật Bản / 18:00 ICT - 6h tối Việt Nam)** hàng ngày.
+- Mở trực tiếp trang cá nhân thật `https://ps.air-outer.com/console/personal` bằng session đã xác thực, tự động lấy số dư thực tế theo thời gian thực (real-time).
 - Script duyệt tuần tự qua từng account (nghỉ 3s giữa các account để tránh rate limit).
 - Gửi tin nhắn báo cáo trạng thái & số dư thật kèm ảnh chụp màn hình riêng biệt cho từng account qua **Telegram bot**.
+- Tự động lưu toàn bộ ảnh chụp màn hình vào mục **Artifacts** của GitHub Actions để có thể tải và xem lại bất cứ lúc nào.
