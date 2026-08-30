@@ -4,3 +4,6 @@ accounts.json
 *.png
 .env
 .DS_Store
+hoyolab_accounts.json
+downloaded_artifacts/
+screenshots/

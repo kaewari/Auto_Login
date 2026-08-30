@@ -1,12 +1,14 @@
 {
-  "name": "agentrouter-autologin-checkin",
+  "name": "agentrouter-hoyolab-daily-checkin",
   "version": "1.0.0",
-  "description": "Auto check-in AgentRouter daily via GitHub Actions & Playwright",
+  "description": "Auto check-in AgentRouter & HoYoLAB daily via GitHub Actions",
   "type": "module",
   "scripts": {
-    "login": "tsx src/login.ts",
-    "checkin": "tsx src/checkin.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "login": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx src/login.ts",
+    "login:hoyolab": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx src/hoyolabLogin.ts",
+    "checkin": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx src/checkin.ts",
+    "checkin:hoyolab": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx src/hoyolabCheckin.ts",
+    "test": "NODE_OPTIONS='--dns-result-order=ipv4first' tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "playwright": "^1.50.0"

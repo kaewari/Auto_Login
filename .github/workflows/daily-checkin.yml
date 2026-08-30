@@ -1,4 +1,4 @@
-name: AgentRouter Daily Check-in (12:00 PM)
+name: Daily Auto Check-in 12:00 PM (AgentRouter & HoYoLAB)
 
 on:
   schedule:
@@ -28,12 +28,20 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run Auto Check-in & Screenshot
+      - name: Run AgentRouter Auto Check-in & Screenshot
         env:
           STORAGE_STATE_BASE64: ${{ secrets.STORAGE_STATE_BASE64 }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: npm run checkin
+
+      - name: Run HoYoLAB Auto Check-in (Star Rail & ZZZ)
+        if: always()
+        env:
+          HOYOLAB_ACCOUNTS_BASE64: ${{ secrets.HOYOLAB_ACCOUNTS_BASE64 }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: npm run checkin:hoyolab
 
       - name: Upload Screenshots Artifacts
         if: always()
